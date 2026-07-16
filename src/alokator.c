@@ -8,6 +8,12 @@
 typedef struct blok{
 	size_t ukuran;
 	bool digunakan;
+	
+	struct history {
+		struct blok* sebelumnya;
+		struct blok* berikutnya;
+	};
+	
 	struct blok* berikutnya;
 	struct blok* lanjutkan;
 	struct blok* sebelumnya;
