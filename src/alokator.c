@@ -99,6 +99,21 @@ void* alokasi(size_t ukuran){
 	} else if (awal->digunakan == true){
 		
 		while(scan != NULL){
+			if(!scan->digunakan && scan != NULL && scan->ukuran >= ukuran){
+				baru = scan;
+				baru->digunakan = true;
+				baru->ukuran = ukuran;
+				baru->lanjutkan = NULL;
+				baru->sebelumnya = scan->sebelumnya;
+				
+				if(scan->berikutnya != NULL){
+					baru->berikutnya = scan->berikutnya;
+				} else {
+					baru->berikutnya = NULL;
+				}
+				break;
+			}
+			
 			if(scan->berikutnya == NULL && scan->digunakan == true){
 				char* alamatBaru = (char*)scan + scan->ukuran + sizeof(Blok);
 				baru = (Blok*)alamatBaru;
@@ -180,4 +195,3 @@ void* bebaskan(void* ptr){
 		
 	return (void*)mem->daftar_heap;
 }
-
