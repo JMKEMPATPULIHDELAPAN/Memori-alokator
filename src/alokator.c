@@ -3,16 +3,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 /* run this program using the console pauser or add your own getch, system("pause") or input loop */
-#define MAKS 8192
+#define MAKS 16384
 
 typedef struct blok{
 	size_t ukuran;
 	bool digunakan;
 	
-	struct history {
-		struct blok* sebelumnya;
-		struct blok* berikutnya;
-	};
+	struct blok* riwayat_sebelumnya;
+	struct blok* riwayat_berikutnya;
+	
 	
 	struct blok* berikutnya;
 	struct blok* lanjutkan;
@@ -28,6 +27,7 @@ typedef struct {
 } Memori;
 
 static Memori* mem = NULL;
+Blok* terakhir = NULL;
 
 void inisiasi(){
 	mem 							= malloc(sizeof(Memori));
@@ -37,8 +37,10 @@ void inisiasi(){
 	mem->daftar_heap->ukuran 		= 0;
 	mem->daftar_heap->digunakan 	= false;
 	mem->daftar_heap->berikutnya 	= NULL;
+	mem->daftar_heap->riwayat_berikutnya 	= NULL;
 	mem->daftar_heap->lanjutkan 	= NULL;
 	mem->daftar_heap->sebelumnya 	= NULL;
+	mem->daftar_heap->riwayat_sebelumnya = NULL;
 		
 	mem->total_dialokasi = 0;
 	mem->total_ukuran = 0;
@@ -58,8 +60,10 @@ bool temukan_blok(void* ptr){
 			printf("Pointer berasal				: %p\n", pointer);
 			printf("Pointer berukuran			: %zu\n", pointer->ukuran);
 			printf("Pointer digunakan			: %s\n", pointer->digunakan ? "ya" : "tidak");
-			printf("Pointer belakang			: %p\n", pointer->sebelumnya);
-			printf("Pointer depan				: %p\n\n", pointer->berikutnya);
+			printf("> Riwayat belakang			: %p\n", pointer->riwayat_sebelumnya);
+			printf("  Pointer belakang			: %p\n", pointer->sebelumnya);
+			printf("> Riwayat depan				: %p\n", pointer->riwayat_berikutnya);
+			printf("  Pointer depan				: %p\n\n", pointer->berikutnya);
 			break;
 		}
 		temukan = temukan->berikutnya;
@@ -75,7 +79,8 @@ void* aturMemori(int nilai, void* kepada, size_t ukuran){
 	unsigned char n = (unsigned char)nilai;
 	unsigned char* k = (unsigned char*)kepada;
 	
-	for(size_t i = 0; i < ukuran; i++){
+	size_t i;
+	for(i = 0; i < ukuran; i++){
 		k[i] = n;
 	}
 	
@@ -85,113 +90,130 @@ void* aturMemori(int nilai, void* kepada, size_t ukuran){
 void* alokasi(size_t ukuran){
 	ukuran = jajarkan(ukuran);
 	
-	Blok* awal = mem->daftar_heap;
+	size_t total_ukuran = ukuran + sizeof(Blok);
+	
+	//hitung ukuran
+	if(MAKS - mem->total_ukuran <= total_ukuran) return NULL;
+	
 	Blok* scan = mem->daftar_heap;
 	Blok* baru = NULL;
+	Blok* kosong = NULL;
 	
-	if(awal->digunakan == false && awal->berikutnya == NULL){
-		baru = awal;
-		baru->digunakan = true;
-		baru->ukuran = ukuran;
-		baru->berikutnya = NULL;
-		baru->lanjutkan = NULL;
-		baru->sebelumnya = NULL;
-	} else if (awal->digunakan == true){
-		
-		while(scan != NULL){
-			if(!scan->digunakan && scan != NULL && scan->ukuran >= ukuran){
-				baru = scan;
-				baru->digunakan = true;
-				baru->ukuran = ukuran;
-				baru->lanjutkan = NULL;
-				baru->sebelumnya = scan->sebelumnya;
-				
-				if(scan->berikutnya != NULL){
-					baru->berikutnya = scan->berikutnya;
-				} else {
-					baru->berikutnya = NULL;
-				}
-				break;
-			}
-			
-			if(scan->berikutnya == NULL && scan->digunakan == true){
-				char* alamatBaru = (char*)scan + scan->ukuran + sizeof(Blok);
-				baru = (Blok*)alamatBaru;
-				baru->digunakan = true;
-				baru->ukuran = ukuran;
-				baru->sebelumnya = scan;
-				baru->lanjutkan = NULL;
-				baru->berikutnya = NULL;
-				
-				scan->berikutnya = baru;
-				break;
-			}
-			
-			scan = scan->berikutnya;
-		}
-	}
-	
-	mem->total_ukuran = mem->total_ukuran + ukuran + sizeof(Blok);
-	
-	return baru->payload;
-}
-
-void* bebaskan(void* ptr){
-	Blok* pointer = (Blok*)((char*)ptr - sizeof(Blok));
-	
-	Blok* scan = mem->daftar_heap;
-	bool ditemukan = false;
 	while(scan != NULL){
-		if(scan == pointer){
-			ditemukan = true;
+		if(scan->digunakan == false && scan->ukuran == 0 && scan->berikutnya == NULL){
+			baru = scan;
+			baru->digunakan = true;
+			baru->ukuran = ukuran;
+			baru->lanjutkan = NULL;
+			
+			//Cek sebelumnya
+			if(scan->sebelumnya != NULL){
+				//Jika ditemukan ada blok sebelumnya
+				baru->sebelumnya = scan->sebelumnya;
+				baru->riwayat_sebelumnya = scan->sebelumnya;
+				
+				scan->sebelumnya->berikutnya = baru;
+			} else {
+				//Jika tidak, berarti itu blok awl
+				baru->sebelumnya = NULL;
+				baru->riwayat_sebelumnya = NULL;
+			}
+			
+			//Pindai untuk pemisahan blok baru
+			if((char*)baru + total_ukuran + sizeof(Blok) <= (char*)mem->heap_mulai + MAKS){
+				//Jika masih luas 
+				char* alamat_baru = (char*)baru + total_ukuran;
+				kosong = (Blok*)alamat_baru;
+				kosong->digunakan = false;
+				kosong->ukuran = 0;
+				kosong->lanjutkan = NULL;
+				kosong->sebelumnya = baru;
+				kosong->riwayat_sebelumnya = baru;
+				kosong->berikutnya = NULL;
+				kosong->riwayat_berikutnya = NULL;
+				terakhir = kosong;
+				
+				baru->berikutnya = kosong;
+				baru->riwayat_berikutnya = kosong;
+			} else {
+				//Tidak luas/sempit
+				baru->berikutnya = NULL;
+				baru->riwayat_berikutnya = NULL;
+			}
+			
 			break;
 		}
 		scan = scan->berikutnya;
 	}
 	
-	if(!ditemukan) return NULL;
+	mem->total_ukuran = mem->total_ukuran + total_ukuran;;
 	
-	Blok* belakang = pointer->sebelumnya;
-	Blok* depan = pointer->berikutnya;
+	return baru->payload;
+}
+
+void* simulasi_bebaskan(void* ptr){
+	Blok* pointer = (Blok*)((char*)ptr - sizeof(Blok));
 	
-	if(belakang == NULL){
-		if(depan != NULL){ //ada blok berikutnya terisi
-			depan->sebelumnya = NULL;
-			mem->daftar_heap = depan;
-		} else { //Tidak punya blok berikutnya
-			mem->daftar_heap->digunakan 	= false;
-			mem->daftar_heap->berikutnya 	= NULL;
-			mem->daftar_heap->sebelumnya 	= NULL;
-			mem->daftar_heap->lanjutkan 	= NULL;
-			
-		}
-	} else if (depan == NULL) {
-		belakang->berikutnya = NULL;
-	} else {
-		depan->sebelumnya = belakang;
-		belakang->berikutnya = depan;
-	}
+	Blok* depan = pointer->riwayat_berikutnya;
+	Blok* belakang = pointer->riwayat_sebelumnya;
 	
 	pointer->digunakan = false;
-	pointer->lanjutkan = NULL;
+	//Ukuran memori TIDAK BOLEH DIUBAH!
 	
-	aturMemori(0, pointer->payload, pointer->ukuran);
+	bool bebas_disebelah = false;
 	
-	//isolasi kebelakanga
-	Blok* maju_kebelakang = mem->daftar_heap;
-	while(maju_kebelakang != NULL){
-		if(maju_kebelakang->berikutnya == NULL){
-			Blok* kebelakang = maju_kebelakang;
-			
-			pointer->sebelumnya = kebelakang;
-			pointer->berikutnya = NULL;
-			kebelakang->berikutnya = pointer;
-			
-			
-			break;
-		}
-		maju_kebelakang = maju_kebelakang->berikutnya;
-	} 
+	//memeriksa sisi blok depan dan belakang
+	
+	//Memeriksa blok belakang
+	bool belakang_terselesaikan = false; //bool ini gunanya ...? kekmana ya sulit aku jelasin
+	if(belakang != NULL && !belakang->digunakan){
 		
-	return (void*)mem->daftar_heap;
+		if(depan != NULL && !depan->digunakan){ //Jika depan ada, tetapi depannya sudah tidak digunakan
+			//bndingkan memori depan dengan angka 0
+			if(depan->ukuran == 0){ //Jika setara, maka belakang yang dibebaskan juga menjadi Blok kosong!
+				belakang->ukuran = 0;
+			} else if(depan->ukuran >= 0){ //Jika lebih dari 0, berarti kedua blok tersebut (yang seddang dibebaskan, dan yang sebelumnya sudah dibebaskan atau si blok belakang) maka jumlahkan untuk dipakai
+				belakang->ukuran = belakang->ukuran + pointer->ukuran + depan->ukuran;
+			}
+			
+			//Menggunakan riwayat/history pointer
+			if(depan->riwayat_berikutnya != NULL){ //jika ada blok kedepannya didepan pointer, maka kaitkan pointernya
+				belakang->riwayat_berikutnya = depan->riwayat_berikutnya;
+				belakang->berikutnya = depan->riwayat_berikutnya;
+				
+				depan->riwayat_berikutnya->sebelumnya = belakang;
+				depan->riwayat_berikutnya->riwayat_sebelumnya = belakang;
+			} else if(depan->riwayat_berikutnya == NULL){
+				belakang->riwayat_berikutnya = NULL;
+				belakang->berikutnya = NULL;
+			}
+			
+			belakang_terselesaikan = true;
+			
+		} else if(depan != NULL && depan->digunakan){ //Jika depan ada, tetapi depannya digunakan
+			belakang->ukuran = belakang->ukuran + pointer->ukuran;
+			belakang->berikutnya = depan;
+			belakang->riwayat_berikutnya = depan;
+		} else if(depan == NULL){ //jika blok depan tidak ada, maka blok tersebut yang dibebaskan adalah BLOK KOSONG
+			belakang->ukuran = 0;
+			belakang->berikutnya = NULL;
+			belakang->riwayat_berikutnya = NULL;
+		}
+	}
+	
+	if(depan != NULL && !depan->digunakan && !belakang_terselesaikan){
+		if(depan->ukuran == 0 && depan->riwayat_berikutnya == NULL){
+			pointer->ukuran = 0;
+			pointer->riwayat_berikutnya = NULL;
+			pointer->berikutnya = NULL;
+			depan->riwayat_sebelumnya = pointer;
+		} else if(depan->ukuran >= 0 && depan->riwayat_berikutnya != NULL){
+			pointer->ukuran = pointer->ukuran + depan->ukuran;
+			pointer->riwayat_berikutnya = depan->riwayat_berikutnya;
+			pointer->berikutnya = depan->riwayat_berikutnya;
+			depan->riwayat_sebelumnya = pointer;
+		}
+	}
+	
+	return mem->daftar_heap;
 }
